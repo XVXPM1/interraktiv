@@ -2,53 +2,74 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Interaktive Fenster</title>
+    <title>Fenster-Tracker</title>
     <style>
-        body { font-family: sans-serif; text-align: center; padding: 50px; transition: background 0.3s; }
-        .card { border: 2px solid #333; padding: 20px; display: inline-block; border-radius: 10px; background: white; }
-        button { padding: 10px 20px; cursor: pointer; font-size: 16px; margin: 5px; }
-        #status { font-weight: bold; color: #007bff; margin-top: 20px; }
+        body { margin: 0; overflow: hidden; font-family: sans-serif; background: #111; color: white; }
+        #info { position: absolute; top: 10px; left: 10px; pointer-events: none; }
+        .punkt { 
+            position: absolute; 
+            width: 20px; height: 20px; 
+            background: #00ffcc; border-radius: 50%; 
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 15px #00ffcc;
+        }
     </style>
 </head>
 <body>
 
-    <div class="card">
-        <h1>Fenster-Steuerung</h1>
-        <p>Klicke einen Button, um alle offenen Tabs zu verändern!</p>
-        
-        <button onclick="sendeBefehl('red', 'Gefahr! 🔴')">Rot</button>
-        <button onclick="sendeBefehl('lightgreen', 'Alles okay 🟢')">Grün</button>
-        <button onclick="sendeBefehl('lightblue', 'Entspannung 🔵')">Blau</button>
-        
-        <div id="status">Warte auf Nachricht...</div>
-    </div>
+    <div id="info">Verschiebe dieses Fenster!</div>
+    <div id="punkte-container"></div>
 
     <script>
-        // 1. Wir erstellen einen Funkkanal namens "interaktion_kanal"
-        const kanal = new BroadcastChannel('interaktion_kanal');
+        const kanal = new BroadcastChannel('fenster_sync');
+        const container = document.getElementById('punkte-container');
+        const meineId = Math.random().toString(36).substr(2, 9);
+        const andereFenster = {};
 
-        // 2. Funktion zum Senden einer Nachricht
-        function sendeBefehl(farbe, text) {
-            const daten = { farbe: farbe, botschaft: text };
-            
-            // Nachricht an ANDERE Tabs senden
+        function sendePosition() {
+            const daten = {
+                id: meineId,
+                // x und y auf dem echten Monitor + Fenstergröße
+                screenX: window.screenX,
+                screenY: window.screenY,
+                width: window.innerWidth,
+                height: window.innerHeight,
+                centerX: window.screenX + window.innerWidth / 2,
+                centerY: window.screenY + window.innerHeight / 2
+            };
             kanal.postMessage(daten);
-            
-            // Auch das EIGENE Fenster aktualisieren (Interaktion mit sich selbst)
-            aktualisiereSeite(daten);
         }
 
-        // 3. Funktion zum Empfangen von Nachrichten von ANDEREN Tabs
         kanal.onmessage = (event) => {
-            aktualisiereSeite(event.data);
+            const d = event.data;
+            if (d.id === meineId) return;
+
+            // Wir berechnen, wo das ANDERE Fenster relativ zu UNSEREM Fenster ist
+            const relX = d.centerX - window.screenX;
+            const relY = d.centerY - window.screenY;
+
+            // Punkt erstellen oder aktualisieren
+            if (!andereFenster[d.id]) {
+                const div = document.createElement('div');
+                div.className = 'punkt';
+                container.appendChild(div);
+                andereFenster[d.id] = div;
+            }
+
+            const punkt = andereFenster[d.id];
+            punkt.style.left = relX + 'px';
+            punkt.style.top = relY + 'px';
         };
 
-        // 4. Die eigentliche Änderung auf der Seite
-        function aktualisiereSeite(daten) {
-            document.body.style.backgroundColor = daten.farbe;
-            document.getElementById('status').innerText = "Letzter Befehl: " + daten.botschaft;
+        // Sende Position, wenn das Fenster bewegt oder verändert wird
+        setInterval(sendePosition, 50); 
+
+        // Animation Loop für flüssige Darstellung
+        function loop() {
+            sendePosition();
+            requestAnimationFrame(loop);
         }
+        loop();
     </script>
 </body>
 </html>
