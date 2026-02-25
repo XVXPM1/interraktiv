@@ -2,139 +2,85 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>AI Cross-Window Transfer</title>
+    <title>AI Inter-Layer Portal</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #0a0a0c; color: #00f2ff; font-family: 'Segoe UI', sans-serif; }
+        body { margin: 0; overflow: hidden; background: rgba(10, 10, 12, 0.9); color: #00f2ff; font-family: 'Segoe UI', sans-serif; }
         #canvas { position: absolute; top: 0; left: 0; pointer-events: none; }
-        
         .item {
             position: absolute;
-            width: 80px; height: 80px;
-            background: linear-gradient(135deg, #00f2ff, #0066ff);
-            border-radius: 12px;
-            cursor: grab;
+            width: 100px; height: 100px;
+            background: linear-gradient(135deg, #ff0055, #ff9900);
+            border-radius: 50%;
             display: flex; align-items: center; justify-content: center;
             font-weight: bold; color: white;
-            box-shadow: 0 0 20px rgba(0, 242, 255, 0.5);
-            user-select: none;
-            z-index: 100;
+            box-shadow: 0 0 30px rgba(255, 0, 85, 0.6);
+            user-select: none; z-index: 9999;
+            cursor: grab;
         }
-        .item:active { cursor: grabbing; scale: 1.1; }
-        
-        #ui { position: absolute; top: 20px; left: 20px; z-index: 10; pointer-events: none; }
+        #ui { position: absolute; top: 10px; left: 10px; pointer-events: none; font-size: 12px; }
     </style>
 </head>
 <body>
 
-    <div id="ui">
-        <h2>AI Overlay Portal</h2>
-        <p>Ziehe das blaue Paket aus dem Fenster raus!</p>
-    </div>
-
+    <div id="ui">AI-SYNCHRONISATION AKTIV</div>
     <canvas id="canvas"></canvas>
 
     <script>
-        const canvas = document.getElementById('canvas');
-        const ctx = canvas.getContext('2d');
-        const kanal = new BroadcastChannel('ai_portal');
-        
+        const kanal = new BroadcastChannel('super_portal');
         let meinX, meinY;
-        let andereFenster = {};
-        let dragItem = null;
+        let itemPos = { x: 200, y: 200, text: "AI-CORE" }; // Globale Monitor-Position
+        let isDragging = false;
+        let lastUpdate = 0;
 
-        // Start-Objekt erstellen
-        if (!window.location.hash) {
-            createItem(100, 100, "DATA-01");
-        }
+        // Erstelle das visuelle Element
+        const div = document.createElement('div');
+        div.className = 'item';
+        div.innerText = itemPos.text;
+        document.body.appendChild(div);
 
-        function createItem(x, y, text) {
-            const div = document.createElement('div');
-            div.className = 'item';
-            div.innerText = text;
-            div.style.left = x + 'px';
-            div.style.top = y + 'px';
-            document.body.appendChild(div);
-
-            div.onmousedown = (e) => {
-                dragItem = { el: div, offsetX: e.offsetX, offsetY: e.offsetY };
-            };
-        }
+        // Drag & Drop Logik
+        div.onmousedown = () => { isDragging = true; div.style.cursor = 'grabbing'; };
+        window.onmouseup = () => { isDragging = false; div.style.cursor = 'grab'; };
 
         window.onmousemove = (e) => {
-            if (!dragItem) return;
+            if (!isDragging) return;
+            // Berechne neue Monitor-Position basierend auf Maus
+            itemPos.x = (window.screenLeft || window.screenX) + e.clientX - 50;
+            itemPos.y = (window.screenTop || window.screenY) + e.clientY - 50;
             
-            const x = e.clientX - dragItem.offsetX;
-            const y = e.clientY - dragItem.offsetY;
-            
-            dragItem.el.style.left = x + 'px';
-            dragItem.el.style.top = y + 'px';
-
-            // Check: Ist das Item außerhalb des Fensters?
-            if (x < -50 || x > window.innerWidth || y < -50 || y > window.innerHeight) {
-                transferItem(x, y, dragItem.el.innerText);
-            }
+            // Sende neue Position an alle
+            kanal.postMessage({ type: 'move', x: itemPos.x, y: itemPos.y });
+            updateLocalPos();
         };
-
-        window.onmouseup = () => { dragItem = null; };
-
-        function transferItem(relX, relY, text) {
-            // Berechne absolute Monitor-Position
-            const absX = (window.screenLeft || window.screenX) + relX;
-            const absY = (window.screenTop || window.screenY) + relY;
-
-            kanal.postMessage({
-                type: 'transfer',
-                absX: absX,
-                absY: absY,
-                text: text
-            });
-
-            dragItem.el.remove();
-            dragItem = null;
-        }
 
         kanal.onmessage = (event) => {
-            const d = event.data;
-            if (d.type === 'transfer') {
-                // Berechne Position in DIESEM Fenster
-                const localX = d.absX - (window.screenLeft || window.screenX);
-                const localY = d.absY - (window.screenTop || window.screenY);
-                
-                // Erscheint nur, wenn es im Bereich dieses Fensters landet
-                if (localX > -50 && localX < window.innerWidth && localY > -50 && localY < window.innerHeight) {
-                    createItem(localX, localY, d.text);
-                }
-            } else {
-                andereFenster[d.id] = d;
+            if (event.data.type === 'move') {
+                itemPos.x = event.data.x;
+                itemPos.y = event.data.y;
+                updateLocalPos();
             }
         };
 
-        // Sync-Logik für die Linien (wie vorher)
-        function sync() {
-            meinX = window.screenLeft || window.screenX;
-            meinY = window.screenTop || window.screenY;
-            
-            kanal.postMessage({
-                type: 'sync', id: 'id-' + meinX,
-                x: meinX, y: meinY, w: window.innerWidth, h: window.innerHeight, zeit: Date.now()
-            });
+        function updateLocalPos() {
+            const localX = itemPos.x - (window.screenLeft || window.screenX);
+            const localY = itemPos.y - (window.screenTop || window.screenY);
 
-            // Zeichnen
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-            for (let id in andereFenster) {
-                const f = andereFenster[id];
-                if (Date.now() - f.zeit > 1000) { delete andereFenster[id]; continue; }
-                
-                ctx.beginPath();
-                ctx.moveTo(window.innerWidth/2, window.innerHeight/2);
-                ctx.lineTo((f.x + f.w/2) - meinX, (f.y + f.h/2) - meinY);
-                ctx.strokeStyle = 'rgba(0, 242, 255, 0.2)';
-                ctx.stroke();
+            // Sichtbarkeit prüfen: Ist das Item im aktuellen Fensterbereich?
+            if (localX > -100 && localX < window.innerWidth && localY > -100 && localY < window.innerHeight) {
+                div.style.display = 'flex';
+                div.style.left = localX + 'px';
+                div.style.top = localY + 'px';
+            } else {
+                div.style.display = 'none'; // Verstecken, wenn es "woanders" ist
             }
-            requestAnimationFrame(sync);
         }
-        sync();
+
+        // Loop zur ständigen Synchronisation (falls Fenster verschoben werden)
+        function loop() {
+            updateLocalPos();
+            requestAnimationFrame(loop);
+        }
+        loop();
     </script>
 </body>
 </html>
