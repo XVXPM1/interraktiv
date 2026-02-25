@@ -2,112 +2,139 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>Fenster-Connect</title>
+    <title>AI Cross-Window Transfer</title>
     <style>
-        body { 
-            margin: 0; 
-            overflow: hidden; 
-            background: #050505; 
-            color: #00ffcc; 
-            font-family: 'Courier New', monospace; 
+        body { margin: 0; overflow: hidden; background: #0a0a0c; color: #00f2ff; font-family: 'Segoe UI', sans-serif; }
+        #canvas { position: absolute; top: 0; left: 0; pointer-events: none; }
+        
+        .item {
+            position: absolute;
+            width: 80px; height: 80px;
+            background: linear-gradient(135deg, #00f2ff, #0066ff);
+            border-radius: 12px;
+            cursor: grab;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: bold; color: white;
+            box-shadow: 0 0 20px rgba(0, 242, 255, 0.5);
+            user-select: none;
+            z-index: 100;
         }
-        #info { 
-            position: absolute; 
-            top: 20px; 
-            left: 20px; 
-            z-index: 10;
-            background: rgba(0,0,0,0.5);
-            padding: 10px;
-            border: 1px solid #00ffcc;
-        }
-        canvas { position: absolute; top: 0; left: 0; }
+        .item:active { cursor: grabbing; scale: 1.1; }
+        
+        #ui { position: absolute; top: 20px; left: 20px; z-index: 10; pointer-events: none; }
     </style>
 </head>
 <body>
 
-    <div id="info">
-        <b>Status:</b> Suche andere Fenster...<br>
-        <small>Öffne diesen Link in einem zweiten Tab/Fenster!</small>
+    <div id="ui">
+        <h2>AI Overlay Portal</h2>
+        <p>Ziehe das blaue Paket aus dem Fenster raus!</p>
     </div>
-    
+
     <canvas id="canvas"></canvas>
 
     <script>
         const canvas = document.getElementById('canvas');
         const ctx = canvas.getContext('2d');
-        const kanal = new BroadcastChannel('fenster_sync_v2');
-        const meineId = Math.random().toString(36).substring(2, 9);
+        const kanal = new BroadcastChannel('ai_portal');
         
+        let meinX, meinY;
         let andereFenster = {};
+        let dragItem = null;
 
-        function resize() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
+        // Start-Objekt erstellen
+        if (!window.location.hash) {
+            createItem(100, 100, "DATA-01");
         }
-        window.addEventListener('resize', resize);
-        resize();
 
-        function sendePosition() {
-            const daten = {
-                id: meineId,
-                // Wir nutzen screenLeft/Top (moderner) oder screenX/Y
-                x: window.screenLeft || window.screenX,
-                y: window.screenTop || window.screenY,
-                w: window.innerWidth,
-                h: window.innerHeight,
-                zeit: Date.now()
+        function createItem(x, y, text) {
+            const div = document.createElement('div');
+            div.className = 'item';
+            div.innerText = text;
+            div.style.left = x + 'px';
+            div.style.top = y + 'px';
+            document.body.appendChild(div);
+
+            div.onmousedown = (e) => {
+                dragItem = { el: div, offsetX: e.offsetX, offsetY: e.offsetY };
             };
-            kanal.postMessage(daten);
+        }
+
+        window.onmousemove = (e) => {
+            if (!dragItem) return;
+            
+            const x = e.clientX - dragItem.offsetX;
+            const y = e.clientY - dragItem.offsetY;
+            
+            dragItem.el.style.left = x + 'px';
+            dragItem.el.style.top = y + 'px';
+
+            // Check: Ist das Item außerhalb des Fensters?
+            if (x < -50 || x > window.innerWidth || y < -50 || y > window.innerHeight) {
+                transferItem(x, y, dragItem.el.innerText);
+            }
+        };
+
+        window.onmouseup = () => { dragItem = null; };
+
+        function transferItem(relX, relY, text) {
+            // Berechne absolute Monitor-Position
+            const absX = (window.screenLeft || window.screenX) + relX;
+            const absY = (window.screenTop || window.screenY) + relY;
+
+            kanal.postMessage({
+                type: 'transfer',
+                absX: absX,
+                absY: absY,
+                text: text
+            });
+
+            dragItem.el.remove();
+            dragItem = null;
         }
 
         kanal.onmessage = (event) => {
-            // Speichere Daten der anderen Fenster
-            andereFenster[event.data.id] = event.data;
+            const d = event.data;
+            if (d.type === 'transfer') {
+                // Berechne Position in DIESEM Fenster
+                const localX = d.absX - (window.screenLeft || window.screenX);
+                const localY = d.absY - (window.screenTop || window.screenY);
+                
+                // Erscheint nur, wenn es im Bereich dieses Fensters landet
+                if (localX > -50 && localX < window.innerWidth && localY > -50 && localY < window.innerHeight) {
+                    createItem(localX, localY, d.text);
+                }
+            } else {
+                andereFenster[d.id] = d;
+            }
         };
 
-        function zeichne() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        // Sync-Logik für die Linien (wie vorher)
+        function sync() {
+            meinX = window.screenLeft || window.screenX;
+            meinY = window.screenTop || window.screenY;
             
-            const meinX = window.screenLeft || window.screenX;
-            const meinY = window.screenTop || window.screenY;
+            kanal.postMessage({
+                type: 'sync', id: 'id-' + meinX,
+                x: meinX, y: meinY, w: window.innerWidth, h: window.innerHeight, zeit: Date.now()
+            });
 
-            // Zeichne Verbindung zu jedem anderen Fenster
+            // Zeichnen
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
             for (let id in andereFenster) {
                 const f = andereFenster[id];
+                if (Date.now() - f.zeit > 1000) { delete andereFenster[id]; continue; }
                 
-                // Wenn das Fenster länger als 1 Sekunde nicht geantwortet hat, löschen
-                if (Date.now() - f.zeit > 1000) {
-                    delete andereFenster[id];
-                    continue;
-                }
-
-                // Berechne die Mitte des ANDEREN Fensters relativ zu MEINER Ecke links oben
-                const zielX = (f.x + f.w / 2) - meinX;
-                const zielY = (f.y + f.h / 2) - meinY;
-
-                // Zeichne Linie zur Mitte
                 ctx.beginPath();
-                ctx.moveTo(window.innerWidth / 2, window.innerHeight / 2);
-                ctx.lineTo(zielX, zielY);
-                ctx.strokeStyle = '#00ffcc';
-                ctx.lineWidth = 2;
+                ctx.moveTo(window.innerWidth/2, window.innerHeight/2);
+                ctx.lineTo((f.x + f.w/2) - meinX, (f.y + f.h/2) - meinY);
+                ctx.strokeStyle = 'rgba(0, 242, 255, 0.2)';
                 ctx.stroke();
-
-                // Zeichne Kreis am Ende der Linie
-                ctx.beginPath();
-                ctx.arc(zielX, zielY, 15, 0, Math.PI * 2);
-                ctx.fillStyle = '#ff0055';
-                ctx.fill();
             }
-
-            requestAnimationFrame(zeichne);
+            requestAnimationFrame(sync);
         }
-
-        // Starte Sende-Intervall (20 mal pro Sekunde)
-        setInterval(sendePosition, 50);
-        
-        // Starte Animations-Loop
-        zeichne();
+        sync();
     </script>
 </body>
 </html>
