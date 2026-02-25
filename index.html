@@ -2,74 +2,112 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>Fenster-Tracker</title>
+    <title>Fenster-Connect</title>
     <style>
-        body { margin: 0; overflow: hidden; font-family: sans-serif; background: #111; color: white; }
-        #info { position: absolute; top: 10px; left: 10px; pointer-events: none; }
-        .punkt { 
-            position: absolute; 
-            width: 20px; height: 20px; 
-            background: #00ffcc; border-radius: 50%; 
-            transform: translate(-50%, -50%);
-            box-shadow: 0 0 15px #00ffcc;
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background: #050505; 
+            color: #00ffcc; 
+            font-family: 'Courier New', monospace; 
         }
+        #info { 
+            position: absolute; 
+            top: 20px; 
+            left: 20px; 
+            z-index: 10;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border: 1px solid #00ffcc;
+        }
+        canvas { position: absolute; top: 0; left: 0; }
     </style>
 </head>
 <body>
 
-    <div id="info">Verschiebe dieses Fenster!</div>
-    <div id="punkte-container"></div>
+    <div id="info">
+        <b>Status:</b> Suche andere Fenster...<br>
+        <small>Öffne diesen Link in einem zweiten Tab/Fenster!</small>
+    </div>
+    
+    <canvas id="canvas"></canvas>
 
     <script>
-        const kanal = new BroadcastChannel('fenster_sync');
-        const container = document.getElementById('punkte-container');
-        const meineId = Math.random().toString(36).substr(2, 9);
-        const andereFenster = {};
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+        const kanal = new BroadcastChannel('fenster_sync_v2');
+        const meineId = Math.random().toString(36).substring(2, 9);
+        
+        let andereFenster = {};
+
+        function resize() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        }
+        window.addEventListener('resize', resize);
+        resize();
 
         function sendePosition() {
             const daten = {
                 id: meineId,
-                // x und y auf dem echten Monitor + Fenstergröße
-                screenX: window.screenX,
-                screenY: window.screenY,
-                width: window.innerWidth,
-                height: window.innerHeight,
-                centerX: window.screenX + window.innerWidth / 2,
-                centerY: window.screenY + window.innerHeight / 2
+                // Wir nutzen screenLeft/Top (moderner) oder screenX/Y
+                x: window.screenLeft || window.screenX,
+                y: window.screenTop || window.screenY,
+                w: window.innerWidth,
+                h: window.innerHeight,
+                zeit: Date.now()
             };
             kanal.postMessage(daten);
         }
 
         kanal.onmessage = (event) => {
-            const d = event.data;
-            if (d.id === meineId) return;
-
-            // Wir berechnen, wo das ANDERE Fenster relativ zu UNSEREM Fenster ist
-            const relX = d.centerX - window.screenX;
-            const relY = d.centerY - window.screenY;
-
-            // Punkt erstellen oder aktualisieren
-            if (!andereFenster[d.id]) {
-                const div = document.createElement('div');
-                div.className = 'punkt';
-                container.appendChild(div);
-                andereFenster[d.id] = div;
-            }
-
-            const punkt = andereFenster[d.id];
-            punkt.style.left = relX + 'px';
-            punkt.style.top = relY + 'px';
+            // Speichere Daten der anderen Fenster
+            andereFenster[event.data.id] = event.data;
         };
 
-        // Sende Position, wenn das Fenster bewegt oder verändert wird
-        setInterval(sendePosition, 50); 
+        function zeichne() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            const meinX = window.screenLeft || window.screenX;
+            const meinY = window.screenTop || window.screenY;
 
-        // Animation Loop für flüssige Darstellung
-        function loop() {
-            sendePosition();
-            requestAnimationFrame(loop);
+            // Zeichne Verbindung zu jedem anderen Fenster
+            for (let id in andereFenster) {
+                const f = andereFenster[id];
+                
+                // Wenn das Fenster länger als 1 Sekunde nicht geantwortet hat, löschen
+                if (Date.now() - f.zeit > 1000) {
+                    delete andereFenster[id];
+                    continue;
+                }
+
+                // Berechne die Mitte des ANDEREN Fensters relativ zu MEINER Ecke links oben
+                const zielX = (f.x + f.w / 2) - meinX;
+                const zielY = (f.y + f.h / 2) - meinY;
+
+                // Zeichne Linie zur Mitte
+                ctx.beginPath();
+                ctx.moveTo(window.innerWidth / 2, window.innerHeight / 2);
+                ctx.lineTo(zielX, zielY);
+                ctx.strokeStyle = '#00ffcc';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                // Zeichne Kreis am Ende der Linie
+                ctx.beginPath();
+                ctx.arc(zielX, zielY, 15, 0, Math.PI * 2);
+                ctx.fillStyle = '#ff0055';
+                ctx.fill();
+            }
+
+            requestAnimationFrame(zeichne);
         }
-        loop();
+
+        // Starte Sende-Intervall (20 mal pro Sekunde)
+        setInterval(sendePosition, 50);
+        
+        // Starte Animations-Loop
+        zeichne();
     </script>
 </body>
 </html>
